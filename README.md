@@ -12,17 +12,36 @@
 ## 装
 
 ```powershell
-node scripts/install-web-profile.mjs --dry-run   # 先看它会做什么
-node scripts/install-web-profile.mjs             # 真装
+node scripts/install-web-profile.mjs --dry-run            # 先看它会做什么
+node scripts/install-web-profile.mjs --profile desktop     # 桌面端（Electron）
+node scripts/install-web-profile.mjs --profile web         # web 端
 ```
 
-**装完必须重启 `dsh web`。** bundle 变更只在启动期合成，`patchReload: live`
-只热重载 patch 文件本身。
+装的是哪个 profile 就写哪个：桌面端是 `desktop`，命令行 `dsh web` 是 `web`。
+**装错 profile 的表现是"什么都装上去了，但一点反应都没有"** —— 实测踩过。
+
+**装完必须重启**（桌面端：退出 App 再打开；web 端：重启 `dsh web`）。
+bundle 变更只在启动期合成，`patchReload: live` 只热重载 patch 文件本身。
 
 > 为什么不用官方的 `dsh plugin add`：它把操作转发给 **pnpm**，
 > 而本机 pnpm 未安装；Windows 上 `npm.ps1` / `dsh.ps1` 还被
 > PowerShell 执行策略禁止。本脚本走确定性路径（改 profile 清单 + 镜像进
-> `node_modules`），正是 pnpm 成功那些次产生的结果。
+> `node_modules` + 装预设两条路），正是 pnpm 成功那些次产生的结果。
+
+### 预设的两条路（0.1.x 与 0.2.x 认的不是同一个东西）
+
+| 运行时 | 预设怎么被读到 | 本包提供 |
+|---|---|---|
+| **0.2.x**（桌面端 `0.2.0-rc.2`） | **bundle 内声明**：插入一行 `@deepseek-ai/dsh-agent-preset` | `preset.patch.yml`（随包发布，`dsh.bundle.patch` 是数组） |
+| **0.1.x**（web 端 `0.1.5-rc.2`） | **目录形态**：`$DSH_HOME/.agent-presets/<id>/agent.cordis.yml` | 安装脚本把 `preset/` 复制过去 |
+
+**0.2.x 不再读取 `.agent-presets/` 目录** —— 复制目录没有用、也没有报错，
+表现就是"选择器里没有「复合体」"。这条实测换来的结论写在
+`preset.patch.yml` 的头部注释里。
+
+预设树里 `composite` 那一行的**唯一出处是 `preset.patch.yml`**：
+`preset/agent.cordis.yml` 里故意没有这一行，否则两套机制都生效时
+同一个预设树里会出现两个实例（工具重名、定时器翻倍、状态各记一份）。
 
 ### 装完验证三条
 
@@ -38,10 +57,24 @@ node scripts/install-web-profile.mjs             # 真装
 3. **状态行出现**：会话里应该能看到 `【当前状态】心情 x/10、精力 x/10…`。
    它由 `systemPrompt.context` 注入，同步求值。
 
-> ⚠️ **必须新建会话并在选择器里选「复合体」。**
-> 人格段、状态上下文、主动心跳都挂在**预设面**上 —— 它们只对挂载了本预设的会话生效。
-> 在别的预设（如 `standard`）的会话里，插件行是加载的，但你**看不到状态行、
-> 也不会有主动心跳**。旧会话不会自动切换预设（预设是建会话时定的）。
+> ⚠️ **当前版本的人格/状态上下文挂在宿主面，对所有会话生效**（包括写代码的会话）。
+> 这是 c06fbb5 的权宜之计：0.2.x 的预设面当时根本挂不上，挂在预设面等于功能全灭。
+> 现在预设声明已经修好（`preset.patch.yml`），下一步才是按平面拆分：
+> 会话级的东西回预设面，只留给「复合体」会话。
+> 在那之前，**你会在每个会话里都看到 `【当前状态】` 那行** —— 这不是 bug，是已知代价。
+>
+> 旧会话不会自动切换预设（预设是建会话时定的）。
+
+### 状态行不动？先看这一条
+
+状态行读的是**当前会话自己的**状态。键来自
+`ctx.agents.currentInitiator().id`（= `session.id`），与观察层
+`session/event` 用的是同一个值 —— **这是同一个键**。
+
+曾经不是：注入用写死的 `dsh|session`，观察用 `session.id`，于是状态机
+一直给 `session-xxxx` 记账、注入那行读的却是一个除它自己没人写的键，
+表现为"状态行永远不动，而且每个会话看到的一样"。回归测试在
+`test-apply.mjs` 的 3c 组（A/B 两会话状态必须不同）。
 
 ### 回滚
 
@@ -210,7 +243,7 @@ bundle purity gate）在假环境里复现不了。
 node test-all.mjs
 ```
 
-十三套、**481 项**，全部纯逻辑或对着**假 OneBot 服务**跑（不需要真 QQ）。
+十三套、**538 项**，全部纯逻辑或对着**假 OneBot 服务**跑（不需要真 QQ）。
 
 | 套 | 覆盖 |
 |---|---|
@@ -223,7 +256,7 @@ node test-all.mjs
 | `test-decide` | 判决解析**退化路径**、配额、纠正措辞 |
 | `test-observe` | 事件→信号（字段形状照类型定义抄） |
 | `test-heartbeat` | 主动心跳的**拦截面**（不打扰时段、冷却、预算、累了不硬撑）、长期频率 |
-| `test-apply` | 装配冒烟（假 ctx 真实调 apply，含心跳只对 composite 会话生效） |
+| `test-apply` | 装配冒烟（假 ctx 真实调 apply，含**会话身份键一致性**回归：A/B 会话状态必须不同） |
 | `test/test-e2e` | 端到端：**自回声=0**、**顺序不倒**、断线自愈、四层健康检查 |
 
 ### 这些测试真抓到过东西
@@ -256,7 +289,8 @@ lib/
   ws.js         WS 网络层（重连 + 半死检测）
   napcat.js     OneBot HTTP 客户端
   index.js      双平面接线
-cordis.patch.yml            宿主面 bundle patch
+cordis.patch.yml            宿主面 bundle patch（控制台 / NapCat 桥）
+preset.patch.yml            预设声明 patch（0.2.x 靠它把「复合体」放进选择器）
 scripts/install-web-profile.mjs   安装 / 回滚
 ```
 
@@ -266,11 +300,16 @@ scripts/install-web-profile.mjs   安装 / 回滚
 
 ## 已知限制
 
-- **本机 DSH 是 `0.1.5-rc.2`**，而预设声明用的是目录形态
-  （`$DSH_HOME/.agent-presets/<id>/`）。**`0.1.7-rc.2` 起官方改为在 bundle 里声明**，
-  那时需要把 `preset/` 改成随包发布的第二条 bundle patch
-  （`dsh.bundle.patch: ["./cordis.patch.yml", "./preset/composite.patch.yml"]`）。
-  包内已经收好了 `preset/`，所以那一步只是换声明形态 + 改安装脚本。
+- **主动心跳默认不开**。心跳策略的默认值在 `lib/heartbeat.js` 的
+  `DEFAULT_POLICY`（`enabled: false`），宿主面那一行没有 config。
+  要开就改 `preset.patch.yml` 里 `composite` 子插件的 `heartbeat` 段
+  （那里已经写好了一份调好的配置，但只在预设面生效）。
+- **平面拆分还没做**（见上文警告）：人格与状态上下文目前在宿主面，
+  对所有会话生效。
+- **本机 web 端是 `0.1.5-rc.2`，桌面端是 `0.2.0-rc.2`**，两者共用同一个
+  `~/.dsh`：状态/记忆文件是**两个进程同时读写**的（后写的赢）。
+  一个进程独占使用时没问题，两个一起跑会互相盖。日志在同一个
+  `log.txt` 里交替出现，就是这个原因。
 - **没有对真实 QQ 做过端到端验证**（NapCat 当前未运行）。网络层、事件解析、
   顺序、自回声、断线自愈都由假 OneBot 服务覆盖，但那毕竟不是真 NapCat。
 - **控制台 UI 未做**。`client.js` 需要 `window.__ModuleLoader__.load({id, factory})`
@@ -279,6 +318,8 @@ scripts/install-web-profile.mjs   安装 / 回滚
 - 预设目前是 `standard` 的副本，因此**她仍然持有编码工具**（bash/fs 等）。
   按设计聊天人格不该有 shell —— 要收窄就把 `preset/agent.cordis.yml` 里
   `tool-bash` / `tool-fs` 等行加 `disabled: true`（改一行的事）。
+  注意 `preset.patch.yml` 里那个预设**已经**不带 shell（子插件列表只有
+  persona 与 composite），但它只在 0.2.x 的桌面端生效。
 
 ## 两处"接上了但没有真跑过"的地方
 
