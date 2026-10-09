@@ -4,7 +4,7 @@
 // 会跟着进群聊提示词 —— 那是最不可挽回的一类错误，所以断言写得最狠。
 
 import {
-  EMBED_BUDGET_CHARS, AliasTable, MemoryStore, isSameStatement, score, scopeKey, terms, visibleTo,
+  EMBED_BUDGET_CHARS, MAX_SCAN, AliasTable, MemoryStore, isSameStatement, score, scopeKey, terms, visibleTo,
 } from './lib/memory.js'
 
 let pass = 0
@@ -162,6 +162,29 @@ function store() {
   ok('write 缺 scope 被拒', s.write({ text: 'x' }).added === false)
   ok('terms 空输入安全', Object.keys(terms('')).length === 0 && Object.keys(terms(null)).length === 0)
   ok('score 空 query 为 0', score('x', {}) === 0)
+}
+
+// ── 15. 防卡死：扫描条数有上限，且保留最近的 ────────────────────────────
+//
+// embed() 挂在 systemPrompt.context 上，**每个模型步都求值**。
+// 不设上限时它随记忆条数线性变慢，表现为"越用越卡"且极难归因。
+{
+  const s = store()
+  const rows = []
+  for (let i = 0; i < MAX_SCAN + 700; i += 1) {
+    rows.push({ text: 'r' + i, scope: { platform: QQ, peer: 'p' }, kind: 'fact' })
+  }
+  s.load(rows) // load 绕过去重，纯为压测
+  ok('压测入库 ' + (MAX_SCAN + 700) + ' 条', s.records.length === MAX_SCAN + 700, String(s.records.length))
+
+  const vis = s.visible({ platform: QQ, peer: 'p' })
+  ok('扫描被限制在 MAX_SCAN', vis.length === MAX_SCAN, String(vis.length))
+  ok('保留的是最近的（丢掉最旧的）', vis[0].text === 'r700', vis[0].text)
+
+  const t0 = Date.now()
+  for (let i = 0; i < 200; i += 1) s.embed({ platform: QQ, peer: 'p' }, 'r5', 900)
+  const per = (Date.now() - t0) / 200
+  ok('单次 embed 足够快（< 5ms，每步跑一次）', per < 5, per.toFixed(2) + 'ms')
 }
 
 console.log('\nmemory 测试：' + pass + ' 通过 / ' + fail + ' 失败')
