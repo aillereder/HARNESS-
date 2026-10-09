@@ -12,7 +12,8 @@
   "files": [
     "lib",
     "preset",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "preset.patch.yml"
   ],
   "keywords": [
     "dsh-plugin",
@@ -31,7 +32,10 @@
   "dsh": {
     "manifestVersion": 1,
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": [
+        "./cordis.patch.yml",
+        "./preset.patch.yml"
+      ]
     }
   },
   "peerDependencies": {

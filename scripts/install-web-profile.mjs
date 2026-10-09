@@ -94,7 +94,7 @@ if (!fs.existsSync(PROFILE_PKG)) {
   say('❌ 找不到 profile package.json —— profile 名或 --home 不对')
   process.exit(1)
 }
-for (const rel of ['lib/index.js', 'cordis.patch.yml']) {
+for (const rel of ['lib/index.js', 'cordis.patch.yml', 'preset.patch.yml']) {
   const p = path.join(root, rel)
   if (!fs.existsSync(p)) {
     say('❌ 缺文件：' + p)
@@ -117,6 +117,8 @@ if (DRY) {
   say('  2. dependencies["' + PACKAGE_NAME + '"] = "file:' + root.replace(/\\/g, '/') + '"')
   say('  3. dsh.profile.bundles 追加 "' + PACKAGE_NAME + '"')
   say('  4. 把包镜像到 ' + MIRROR_DIR)
+  say('     （含 preset.patch.yml —— 0.2.x 靠它把「复合体」声明进选择器）')
+  say('  5. 预设目录复制到 ' + path.join(HOME, '.agent-presets', 'composite') + '（0.1.x 的 web 端靠它）')
   process.exit(0)
 }
 
@@ -152,7 +154,7 @@ function copyInto(src, dst) {
 
 if (fs.existsSync(MIRROR_DIR)) fs.rmSync(MIRROR_DIR, { recursive: true, force: true })
 fs.mkdirSync(MIRROR_DIR, { recursive: true })
-for (const rel of ['lib', 'preset', 'cordis.patch.yml', 'package.json']) {
+for (const rel of ['lib', 'preset', 'cordis.patch.yml', 'preset.patch.yml', 'package.json']) {
   const src = path.join(root, rel)
   if (!fs.existsSync(src)) continue
   copyInto(src, path.join(MIRROR_DIR, rel))
@@ -161,11 +163,15 @@ say('✅ 已镜像到 ' + MIRROR_DIR)
 
 // ── 预设 ────────────────────────────────────────────────────────────────────
 //
-// 预设必须单独装到 `$DSH_HOME/.agent-presets/<id>/`：
-// 0.1.5-rc.2 只认目录形态（0.1.7-rc.2 起官方改为在 bundle 里声明，
-// 那时这段要改成随包发布的第二条 bundle patch）。
+// 两条路一起走，因为两个运行时认的不是同一个东西：
 //
-// 少了这一步，插件装上了但**选择器里没有人设** —— 那是"装了但用不了"。
+//   · 0.2.x（桌面端 0.2.0-rc.2）：预设由 **bundle 内声明** ——
+//     `preset.patch.yml` 插入一行 `@deepseek-ai/dsh-agent-preset`。
+//     `$DSH_HOME/.agent-presets/` **不再被读取**，复制目录没用。
+//   · 0.1.x（web 端 0.1.5-rc.2）：预设是**目录形态** ——
+//     认 `$DSH_HOME/.agent-presets/<id>/agent.cordis.yml`。
+//
+// 少了这两步之一，表现都是"装上了但选择器里没有人设"。
 const PRESET_ID = 'composite'
 const PRESET_SRC = path.join(root, 'preset')
 const PRESET_DST = path.join(HOME, '.agent-presets', PRESET_ID)
@@ -190,6 +196,7 @@ const okDep = after.dependencies[PACKAGE_NAME] !== undefined
 const okBundle = after.dsh.profile.bundles.indexOf(PACKAGE_NAME) >= 0
 const okMirror = fs.existsSync(path.join(MIRROR_DIR, 'lib', 'index.js'))
 const okPatch = fs.existsSync(path.join(MIRROR_DIR, 'cordis.patch.yml'))
+const okPresetPatch = fs.existsSync(path.join(MIRROR_DIR, 'preset.patch.yml'))
 const okPresetAgent = fs.existsSync(path.join(PRESET_DST, 'agent.cordis.yml'))
 const okPresetMeta = fs.existsSync(path.join(PRESET_DST, 'preset.yml'))
 say('')
@@ -198,9 +205,10 @@ say('  profile dependencies  = ' + okDep)
 say('  profile bundles       = ' + okBundle)
 say('  包镜像                = ' + okMirror)
 say('  bundle patch          = ' + okPatch)
+say('  bundle patch（预设声明）= ' + okPresetPatch)
 say('  预设 agent.cordis.yml = ' + okPresetAgent)
 say('  预设 preset.yml       = ' + okPresetMeta)
-if (!(okDep && okBundle && okMirror && okPatch && okPresetAgent && okPresetMeta)) {
+if (!(okDep && okBundle && okMirror && okPatch && okPresetPatch && okPresetAgent && okPresetMeta)) {
   say('❌ 自校验失败 —— 用 --rollback 还原')
   process.exit(1)
 }

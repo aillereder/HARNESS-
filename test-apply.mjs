@@ -162,6 +162,72 @@ process.env.DSH_HOME = tmpHome
   ok('连续求值都是字符串', typeof out2 === 'string')
 }
 
+// ── 3c. 会话身份：注入用的键必须与观察用的键一致 ────────────────────────
+//
+// 这一组是**回归测试**，针对一个真实存在过的 bug：
+// 注入（systemPrompt.context）用的是写死的 'dsh|session'，
+// 而观察（session/event）用 session.id —— 两个键不一致，
+// 于是状态行读的是一个除了它自己没人写的键：**永远不动**，
+// 而且所有会话看到同一份。用户看到的现象是"状态行不更新"。
+{
+  const agentA = { id: 'session-A', session: { id: 'session-A' } }
+  const agentB = { id: 'session-B', session: { id: 'session-B' } }
+  let current = agentA
+  const agents = {
+    currentInitiator: () => current,
+    requireInitiator: () => current,
+    // plugin 不该用这个（用了就会串会话），放这里当哨兵
+    list: () => { throw new Error('不该调 list()：会话身份必须来自 currentInitiator()') },
+  }
+
+  const { ctx, recorded } = fakeCtx({ agents })
+  apply(ctx, { plane: 'host' })
+
+  const entry = recorded.contexts[0]
+  ok('会话键：注册了状态上下文', entry !== undefined && typeof entry.text === 'function')
+
+  // A 会话挨一轮工具失败：状态必然变化
+  const sessionHandler = recorded.events.find((e) => e.name === 'session/event').handler
+  sessionHandler({ id: 'session-A' }, { type: 'turn/start', time: Date.now(), data: { turn: 1 } })
+  for (let i = 0; i < 3; i += 1) {
+    sessionHandler({ id: 'session-A' }, {
+      type: 'tool/result', time: Date.now(),
+      data: { turn: 1, step: i + 1, message: { content: [{ type: 'tool-result', toolCallId: 'c' + i, content: [], isError: true }] } },
+    })
+  }
+  sessionHandler({ id: 'session-A' }, {
+    type: 'turn/end', time: Date.now(), data: { turn: 1, reason: { kind: 'completed' } },
+  })
+
+  current = agentA
+  const outA = entry.text({})
+  current = agentB
+  const outB = entry.text({})
+  current = agentA
+  const outA2 = entry.text({})
+
+  ok('会话键：A 会话的状态上下文是字符串', typeof outA === 'string' && outA.length > 0, String(outA).slice(0, 60))
+  ok('会话键：B 会话的状态上下文是字符串', typeof outB === 'string' && outB.length > 0, String(outB).slice(0, 60))
+  // 这一条就是那个 bug 的判据：键一致时 A 读到的是 A 自己的状态
+  ok('会话键：挨过失败的 A 与干净的 B 状态**不同**（键一致的核心判据）',
+    outA !== outB, 'A=' + String(outA).slice(0, 46) + ' | B=' + String(outB).slice(0, 46))
+  ok('会话键：同一会话连续求值稳定', outA === outA2)
+  // 反向判据：状态没往共享键上写
+  ok('会话键：没有退化到共享键（A 不是那个"谁都不写"的键）',
+    outA.indexOf('耐心 10.0') < 0 || outB.indexOf('耐心 10.0') >= 0,
+    'A=' + String(outA).slice(0, 46))
+
+  // agents 服务缺失时必须降级而不是抛（老运行时的兼容路径）
+  const degraded = fakeCtx()
+  apply(degraded.ctx, { plane: 'host' })
+  let degradedThrew = false
+  let degradedOut = null
+  try { degradedOut = degraded.recorded.contexts[0].text({}) } catch (error) { degradedThrew = true }
+  ok('会话键：agents 缺失时降级不抛', degradedThrew === false)
+  ok('  且仍然给出可读状态', typeof degradedOut === 'string' && degradedOut.indexOf('心情') >= 0,
+    String(degradedOut).slice(0, 50))
+}
+
 // ── 4. 缺 systemPrompt 时不崩（硬依赖缺失的降级）────────────────────────
 {
   const { ctx } = fakeCtx({ noSystemPrompt: true })
