@@ -1,0 +1,13 @@
+# 依赖目录（本包零依赖，正常不该有）
+node_modules/
+
+# 开发中途搁置的东西：客户端 bundle 试过一次把 WEB 弄挂，已放弃这条路
+# 保留在此仅供追溯，不参与安装
+wip/
+
+# 安装脚本的备份
+install-backups/
+
+# 运行时数据不该进仓库（真实位置是 ${DSH_HOME}/composite/）
+data/
+*.log

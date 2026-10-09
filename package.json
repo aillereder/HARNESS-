@@ -1,0 +1,48 @@
+{
+  "name": "dsh-composite",
+  "version": "0.1.0",
+  "description": "复合体：把「思考/决策/记忆/状态/主动」装成 DeepSeek Harness 的聊天 Bot —— 变量由 DSH 自身输出观察得出，双向经 NapCat 收发 QQ 消息。",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "preset",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "qq",
+    "napcat",
+    "onebot",
+    "chatbot",
+    "persona"
+  ],
+  "engines": {
+    "node": ">=22.19.0",
+    "dsh": ">=0.1.5-rc.1 <0.3.0-0"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "test": "node test-all.mjs"
+  }
+}

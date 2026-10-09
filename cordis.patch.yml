@@ -1,0 +1,13 @@
+# dsh-composite bundle：向 profile 注入一条 loader 行。
+#
+# 用法：`node <dsh bin.js> plugin --profile web add file:D:\DSH\dsh-composite`
+# 会把本包写进 profile 的 dependencies 与 dsh.profile.bundles，
+# 这条 patch 随之自动应用 —— **不要再手改 profile 的 cordis.patch.yml**，
+# 否则会产生同名重复行、profile 起不来。
+#
+# 注意：`id` 必须与 loader 行 id 一致（下面两处都是 `composite`），
+# profile 的 patch 靠 id 定位覆盖；`name` 必须是包名，loader 用它 import。
+# YAML 里以 @ 开头的标量要加引号 —— 本包名不以 @ 开头，故不加。
+- insert:
+    - id: composite
+      name: dsh-composite
