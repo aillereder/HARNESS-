@@ -79,7 +79,7 @@ process.env.DSH_HOME = tmpHome
 {
   const { ctx, recorded } = fakeCtx()
   let threw = false
-  try { apply(ctx, { plane: 'preset', persona: '测试人格：你是测试角色。' }) } catch (error) {
+  try { apply(ctx, { plane: 'host', persona: '测试人格：你是测试角色。' }) } catch (error) {
     threw = true
     console.log('       抛出：' + error.message)
   }
@@ -114,7 +114,7 @@ process.env.DSH_HOME = tmpHome
 // ── 3b. 出站与生成偏置的接线细节 ────────────────────────────────────────
 {
   const { ctx, recorded } = fakeCtx()
-  apply(ctx, { plane: 'preset' })
+  apply(ctx, { plane: 'host' })
 
   // agent/assistant-stream 的处理函数在 NapCat 未启用时应安静返回（不该抛）
   const streamHandler = recorded.events.find((e) => e.name === 'agent/assistant-stream')
@@ -147,7 +147,7 @@ process.env.DSH_HOME = tmpHome
 // ── 3. 状态上下文可以同步求值，且返回可读文本 ───────────────────────────
 {
   const { ctx, recorded } = fakeCtx()
-  apply(ctx, { plane: 'preset', personality: undefined })
+  apply(ctx, { plane: 'host', personality: undefined })
   const entry = recorded.contexts[0]
   ok('context.text 是函数（同步求值）', typeof entry.text === 'function', typeof entry.text)
   let out = null
@@ -166,7 +166,7 @@ process.env.DSH_HOME = tmpHome
 {
   const { ctx } = fakeCtx({ noSystemPrompt: true })
   let threw = false
-  try { apply(ctx, { plane: 'preset' }) } catch (error) { threw = true }
+  try { apply(ctx, { plane: 'host' }) } catch (error) { threw = true }
   ok('systemPrompt 缺失时 apply 不抛（整层降级）', threw === false)
 }
 
@@ -174,7 +174,7 @@ process.env.DSH_HOME = tmpHome
 {
   const { ctx } = fakeCtx({ noTools: true })
   let threw = false
-  try { apply(ctx, { plane: 'preset' }) } catch (error) { threw = true }
+  try { apply(ctx, { plane: 'host' }) } catch (error) { threw = true }
   ok('tools 缺失时 apply 不抛', threw === false)
   await new Promise((r) => setTimeout(r, 100))
   ok('  异步装配也不产生未捕获异常', true)
@@ -186,7 +186,10 @@ process.env.DSH_HOME = tmpHome
   let threw = false
   try { apply(ctx, { plane: 'host' }) } catch (error) { threw = true }
   ok('NapCat 未启用时宿主面不抛', threw === false)
-  ok('  且不注册人格段（宿主面不该管会话级的东西）', recorded.sections.length === 0,
+  // 设计变更（实测代价换来的）：功能全部搬到了宿主面。
+  // 因为 0.2.x 改了预设声明形态，预设面在用户机器上根本没挂载；
+  // 而宿主面在所有版本、所有 profile 上都加载。
+  ok('  且宿主面现在注册全部功能（不再依赖预设面）', recorded.sections.length === 1,
     String(recorded.sections.length))
 }
 
@@ -210,9 +213,9 @@ process.env.DSH_HOME = tmpHome
     undefined,
     null,
     {},
-    { plane: 'preset' },
-    { plane: 'preset', persona: '' },
-    { plane: 'preset', persona: 123 },
+    { plane: 'host' },
+    { plane: 'host', persona: '' },
+    { plane: 'host', persona: 123 },
     { plane: 'unknown-plane' },
   ]
   let threw = 0
@@ -228,14 +231,14 @@ process.env.DSH_HOME = tmpHome
 {
   // 未启用 → 不该注册定时器
   const off = fakeCtx()
-  apply(off.ctx, { plane: 'preset' })
+  apply(off.ctx, { plane: 'host' })
   ok('心跳未启用时不注册定时器', off.recorded.intervals.length === 0,
     String(off.recorded.intervals.length))
 
   // 启用 → 注册一个定时器
   const on = fakeCtx()
   apply(on.ctx, {
-    plane: 'preset',
+    plane: 'host',
     heartbeat: { enabled: true, intervalMs: 1000, silenceMs: 0, cooldownMs: 0, dailyBudget: 99, probability: 1 },
   })
   ok('心跳启用时注册了定时器', on.recorded.intervals.length === 1,
@@ -249,7 +252,7 @@ process.env.DSH_HOME = tmpHome
   const noTimer = fakeCtx({ noTimer: true })
   let threw = false
   try {
-    apply(noTimer.ctx, { plane: 'preset', heartbeat: { enabled: true } })
+    apply(noTimer.ctx, { plane: 'host', heartbeat: { enabled: true } })
   } catch (error) { threw = true }
   ok('timer 缺失时心跳降级不抛', threw === false)
 }
@@ -282,7 +285,7 @@ process.env.DSH_HOME = tmpHome
 
   const f = fakeCtx({ agents: fakeAgents })
   apply(f.ctx, {
-    plane: 'preset',
+    plane: 'host',
     heartbeat: {
       enabled: true, intervalMs: 50,
       silenceMs: 0, cooldownMs: 0, dailyBudget: 99, probability: 1,
@@ -320,14 +323,14 @@ process.env.DSH_HOME = tmpHome
   // 无标记 → 正常装配
   if (fsMod.existsSync(marker)) fsMod.rmSync(marker)
   const normal = fakeCtx()
-  apply(normal.ctx, { plane: 'preset' })
+  apply(normal.ctx, { plane: 'host' })
   ok('无标记时 preset 面正常装配', normal.recorded.sections.length === 1,
     String(normal.recorded.sections.length))
 
   // 有标记 → 两个平面都什么都不注册
   fsMod.writeFileSync(marker, 'disabled\n', 'utf8')
   const off = fakeCtx()
-  apply(off.ctx, { plane: 'preset' })
+  apply(off.ctx, { plane: 'host' })
   ok('有标记时 preset 面不注册人格段', off.recorded.sections.length === 0,
     String(off.recorded.sections.length))
   ok('  也不注册状态上下文', off.recorded.contexts.length === 0, String(off.recorded.contexts.length))
@@ -341,7 +344,7 @@ process.env.DSH_HOME = tmpHome
   // 移除标记 → 恢复
   fsMod.rmSync(marker)
   const back = fakeCtx()
-  apply(back.ctx, { plane: 'preset' })
+  apply(back.ctx, { plane: 'host' })
   ok('移除标记后恢复装配', back.recorded.sections.length === 1, String(back.recorded.sections.length))
 }
 
